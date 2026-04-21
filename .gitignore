@@ -1,0 +1,30 @@
+# 本地 / 环境
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# 超大原始数据（勿提交；老师若需要可另用网盘或 Git LFS）
+Drone_Dataset1/
+6-DOF Odometry/
+
+# 可选：若仓库仍太大，取消下面注释再提交
+# *.csv
+# car/*.csv
+# human/*.xlsx
+# 庞大的 IMU 数据集
+Drone_Dataset1/
+6-DOF Odometry/
+car/
+human/
+Dataset_drone/
+test/
+
+# 深度学习模型权重
+*.pt
+pretrain_1/
