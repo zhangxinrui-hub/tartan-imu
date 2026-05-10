@@ -338,21 +338,21 @@ def main():
         invalid_data = np.random.randn(5, 5).astype(np.float32)  # Should be 6 channels, got 5
         predictor.predict(invalid_data)
     except ValueError as e:
-        print(f"✓ Caught expected error: {e}")
+        print(f"[OK] Caught expected error: {e}")
     
     try:
         # Invalid input shape - wrong number of channels (3D case)
         invalid_data = np.random.randn(2, 10, 5).astype(np.float32)  # Should be 6 channels, got 5
         predictor.predict(invalid_data)
     except ValueError as e:
-        print(f"✓ Caught expected error: {e}")
+        print(f"[OK] Caught expected error: {e}")
     
     try:
         # Invalid dimensions - too many dimensions
         invalid_data = np.random.randn(2, 3, 4, 5).astype(np.float32)  # 4D instead of 2D or 3D
         predictor.predict(invalid_data)
     except ValueError as e:
-        print(f"✓ Caught expected error: {e}")
+        print(f"[OK] Caught expected error: {e}")
     
     print("\nAll error handling tests passed!")
     print("\nDeployment example completed successfully!")

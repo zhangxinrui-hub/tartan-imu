@@ -453,7 +453,7 @@ def main():
     print("       Global bias calibration would be WRONG here (walking rotation ≠ bias)")
     print()
     print("Drone: GT+Scale (×4.75) gives WORSE ATE (41→190m).")
-    print("       Reason: ATE scales with path length — 41×4.75 ≈ 195m. ✓")
+    print("       Reason: ATE scales with path length — 41×4.75 ≈ 195m. [OK]")
     print("       The model has directional drift (velocity direction error), not pure scale.")
     print("       → Simple scaling amplifies direction error proportionally.")
     print("       → LoRA must fix BOTH velocity magnitude AND direction simultaneously.")

@@ -73,12 +73,13 @@ GT is used ONLY for offline ATE computation.
 
 ### LoRA Fine-Tuning
 
-**Scripts**: `test/car/model.py` (LoRA architecture), `test/car/run_eval_lora.py` (evaluation)
+**Scripts**: `car/train_lora.py` (training), `test/car/model.py` (LoRA architecture), `test/car/run_eval_lora.py` (evaluation)
 
 - `LoRAConv1d`: Low-rank delta on Conv1d weights (rank=32, alpha=8, scaling=0.25)
 - Applied to all convolutions in the CNN backbone (input block + residual blocks)
-- Dual checkpoint loading: base `checkpoint_28.pt` + LoRA `checkpoint_37.pt`
-- Evaluation only — no training loop is included in this repository
+- Training: random short windows on self-collected car data, MSE loss on `block1_z` (forward speed), AdamW optimizer with gradient clipping
+- Two modes: `--train-head` (only update `heads.car`) or default (only update LoRA adapters)
+- Dual checkpoint loading at evaluation: base `checkpoint_28.pt` + LoRA `car/lora_trained.pt`
 
 ## EKF Backend (`ekf_backend.py`)
 
@@ -125,15 +126,35 @@ All data resampled to 200 Hz before inference. Quaternion interpolation uses SLE
 
 Axis remap (user Z→model X, user Y→model Y, user X→model Z) then `acc[:, 2] -= 9.81`. Assumes near-upright orientation — no full attitude required.
 
+## 6-DOF Inertial Odometry Baseline (`6-DOF Odometry/`)
+
+A re-implementation of Lima et al. (Sensors 2019) serving as a traditional deep-learning baseline for comparison with TartanIMU.
+
+### Architecture (`model_torch.py`)
+
+CNN-LSTM network: separate gyro/acc encoders (Conv1d 3→64→128, k=11) → concatenate → 2-layer bidirectional LSTM (hidden=128) → FC heads for relative translation (3) and quaternion (4). Multi-task loss with learned task weights (TMAE + QME).
+
+### Training (`train.py`)
+
+- **Dataset**: Oxford Inertial Odometry Dataset (OxIOD), 17 handheld sequences
+- **Config**: window_size=200, stride=10, batch_size=32, 500 epochs, Adam lr=1e-4
+- **Output**: `model_checkpoint.hdf5` (best val loss), `my_model.hdf5` (final pred model)
+- Training loss curve saved to `training_loss.png`
+- Keras implementation (CuDNNLSTM → LSTM fallback for CPU compatibility)
+
+### Evaluation (`test.py`, `test_torch.py`)
+
+Reconstructs full trajectory from predicted relative poses. Results visualized in `result_*.png`.
+
+**Note**: The primary training was done with the Keras pipeline (`train.py`). A fully runnable PyTorch version (`train_torch.py`) is also provided, reusing `model_torch.py` and `dataset.py`.
+
 ## Known Limitations
 
 - Baseline evaluation uses GT quaternion for preprocessing — results are oracle upper bounds
 - `output_block2` is used as uncertainty proxy but was not trained with NLL loss (assumption, not verified)
-- Single test sequence per platform limits statistical significance
 - EKF runs as Python for-loop (slow for long sequences)
 - No comparison with other learning-based INS methods (RoNIN, IONet, etc.)
 - `dog` output head has no evaluation data or pipeline
-- LoRA training code not included, only evaluation
 
 ## Checkpoints
 

@@ -9,22 +9,22 @@ venv/
 *.swp
 .DS_Store
 
-# 超大原始数据（勿提交；老师若需要可另用网盘或 Git LFS）
+# 超大原始数据
 Drone_Dataset1/
-6-DOF Odometry/
+6-DOF Odometry/Oxford Inertial Odometry Dataset/
+6-DOF Odometry/logs/
+6-DOF Odometry/__pycache__/
+6-DOF Odometry/*.hdf5
+6-DOF Odometry/.DS_Store
 
-# 可选：若仓库仍太大，取消下面注释再提交
-# *.csv
-# car/*.csv
-# human/*.xlsx
-# 庞大的 IMU 数据集
-Drone_Dataset1/
-6-DOF Odometry/
-car/
-human/
-Dataset_drone/
-test/
+# 原始采集 CSV
+car/car_imu_data.csv
+car/car_imu_data_full.csv
+car/car_ground_truth.csv
+car/gt_large_loop.txt
+human/*.xlsx
 
-# 深度学习模型权重
-*.pt
+# 作者 pretrain NPZ
 pretrain_1/
+test/car/pretrain_1.npz
+test/human/pretrain_1.npz

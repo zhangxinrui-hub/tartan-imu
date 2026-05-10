@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 # ===========================================================
-# 1. Residual block (ResNet) - 保持不变
+# 1. Residual Block
 # ===========================================================
 class ResidualBlock(nn.Module):
     def __init__(self, in_channels, out_channels, stride=1, has_downsample=False):
@@ -31,12 +31,10 @@ class ResidualBlock(nn.Module):
         return F.relu(out)
 
 # ===========================================================
-# 2. Transformer Block (IMU_Trunk) - [已修正命名匹配]
+# 2. Transformer Block (IMU_Trunk)
 # ===========================================================
 class Mlp(nn.Module):
-    """
-    专门定义的 MLP 类，为了匹配 Checkpoint 中的 'mlp.fc1' 和 'mlp.fc2' 命名
-    """
+    """MLP matching checkpoint key naming ('mlp.fc1', 'mlp.fc2')."""
     def __init__(self, in_features, hidden_features, out_features, act_layer=nn.ReLU, drop=0.):
         super().__init__()
         self.fc1 = nn.Linear(in_features, hidden_features)
@@ -61,7 +59,7 @@ class IMUTransformerBlock(nn.Module):
             num_heads=nhead,
             batch_first=True,
             bias=True,
-            add_bias_kv=True   # ⭐ 关键：匹配 checkpoint
+            add_bias_kv=True  # required to match checkpoint weights
         )
 
         self.norm_1 = nn.LayerNorm(d_model)
@@ -87,7 +85,6 @@ class IMUTransformerBlock(nn.Module):
 class IMU_Trunk(nn.Module):
     def __init__(self, num_blocks=6):
         super().__init__()
-        # Checkpoint 通常使用 module list
         self.blocks = nn.ModuleList([IMUTransformerBlock(d_model=64, nhead=4, dim_ff=256) for _ in range(num_blocks)])
 
     def forward(self, x):
@@ -96,7 +93,7 @@ class IMU_Trunk(nn.Module):
         return x
 
 # ===========================================================
-# 3. CNN + ResNet + LSTM - 保持不变
+# 3. CNN + ResNet + LSTM Backbone
 # ===========================================================
 class ModelWithLSTM(nn.Module):
     def __init__(self, input_channels=6, lstm_hidden=64):
@@ -115,16 +112,12 @@ class ModelWithLSTM(nn.Module):
             nn.Conv1d(256, 128, kernel_size=1, bias=False), nn.BatchNorm1d(128), nn.ReLU(inplace=True),
             nn.Conv1d(128, 128, kernel_size=1, bias=False), nn.BatchNorm1d(128), nn.ReLU(inplace=True)
         )
-        # 你的 Unfold 逻辑非常完美地解释了这里为什么是 1664 (128 * 13)
+        # Unfold(win=13) produces 128*13 = 1664 features per timestep
         self.lstm = nn.LSTM(input_size=1664, hidden_size=lstm_hidden, batch_first=True)
-        self.IMU_Trunk = IMU_Trunk() # Transformer 接在 LSTM 后面
+        self.IMU_Trunk = IMU_Trunk()
 
     def forward(self, x, hidden=None):
-        """
-        hidden: (h_n, c_n) 来自上一个 chunk 的 LSTM 隐状态，可选。
-                传入后 LSTM 将从上一块末尾继续，而不是从零初始化。
-        返回: (features, hidden_out) 其中 hidden_out 可传给下一块。
-        """
+        """Forward pass with optional LSTM hidden state carry-over for streaming."""
         x = self.input_block(x)
         for group in self.residual_groups:
             for blk in group:
@@ -141,17 +134,18 @@ class ModelWithLSTM(nn.Module):
         B, C, T_new, W = x_unf.shape
         x_unf = x_unf.permute(0, 2, 1, 3).reshape(B, T_new, C * W)
         
-        lstm_out, hidden_out = self.lstm(x_unf, hidden)  # 传入/传出隐状态
+        lstm_out, hidden_out = self.lstm(x_unf, hidden)
         features = self.IMU_Trunk(lstm_out)
         return features, hidden_out
 
 # ===========================================================
-# 4. Output Heads - 保持不变
+# 4. Output Heads
 # ===========================================================
 class OutputHead(nn.Module):
+    """Per-platform output head with 3 branches (vel_xy, uncertainty, vel_z)."""
     def __init__(self, input_dim=64):
         super().__init__()
-        # 这种写法完美匹配 Checkpoint 中的 fcs.0, fcs.3, fcs.6
+        # Identity layers at indices 2, 5 match checkpoint keys fcs.0, fcs.3, fcs.6
         self.output_block1 = nn.ModuleDict({'fcs': nn.ModuleList([
             nn.Linear(input_dim, 256), nn.ReLU(inplace=True), nn.Identity(),
             nn.Linear(256, 256), nn.ReLU(inplace=True), nn.Identity(),
@@ -196,43 +190,39 @@ class TartanIMUModel(nn.Module):
         return outputs, hidden_out
 
 # ===========================================================
-# 6. Checkpoint Loader (增强版)
+# 5. Checkpoint Loader
 # ===========================================================
 def load_checkpoint(model, path, device='cpu'):
     print(f"Loading checkpoint: {path}")
     checkpoint = torch.load(path, map_location=device)
     
-    # 1. 提取 state_dict
     state_dict = checkpoint.get('model_state_dict', checkpoint.get('state_dict', checkpoint))
-    
-    # 2. 处理 'module.' 前缀
+
+    # Strip 'module.' prefix from DataParallel checkpoints
     new_state_dict = {}
     for k, v in state_dict.items():
         name = k[7:] if k.startswith('module.') else k
         new_state_dict[name] = v
-        
-    # 3. 加载
-    # strict=False 允许少量不匹配 (如 running_mean 的维度微小差异等)，但在验证阶段建议先尝试 strict=True
+
     try:
         model.load_state_dict(new_state_dict, strict=True)
-        print("✅ Checkpoint Loaded Successfully (Strict Mode)!")
+        print("Checkpoint loaded successfully (strict mode).")
     except RuntimeError as e:
-        print(f"⚠️ Strict loading failed: {e}")
+        print(f"Strict loading failed: {e}")
         print("Retrying with strict=False...")
         missing, unexpected = model.load_state_dict(new_state_dict, strict=False)
         print(f"Loaded with strict=False. Missing: {len(missing)}, Unexpected: {len(unexpected)}")
-        if len(missing) > 0: print(f"Sample missing: {missing[:3]}")
+        if len(missing) > 0:
+            print(f"Sample missing: {missing[:3]}")
 
     return model
 
 if __name__ == "__main__":
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = TartanIMUModel().to(device)
-    # 请确保文件名为用户上传的文件名
-    model = load_checkpoint(model, "checkpoint_28.pt", device=device) 
-    
+    model = load_checkpoint(model, "checkpoint_28.pt", device=device)
+
     model.eval()
-    # 模拟输入: [Batch, Channels, Time]
     dummy_input = torch.randn(1, 6, 200).to(device)
     
     with torch.no_grad():
